@@ -3,22 +3,23 @@ import time
 import json
 import os
 import datetime
+import sys
 
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
 from os.path import join, dirname
 from dotenv import load_dotenv
-from mqtt_callbacks import callbacks
 
-dotenv_path = join(dirname(__file__), './.env')
+dotenv_path = join(dirname(__file__), './../.env')
 load_dotenv(dotenv_path)
 
 DHT_SENSOR = Adafruit_DHT.DHT22
 DHT_PIN = os.getenv("DHT_PIN")
-MESSAGE_DELAY_IN_SEC = 300
+MESSAGE_DELAY_IN_SEC = 30
+SENSOR_ID = 'dht22'
 
 INPUT_ENDPOINT = os.getenv("INPUT_ENDPOINT")
-PORT = os.getenv("PORT")
+PORT = int(os.getenv("PORT"))
 TOPIC = os.getenv("TOPIC")
 CLIENT_ID = os.getenv("CLIENT_ID")
 
@@ -27,9 +28,46 @@ CERT = os.getenv("CERT")
 KEY = os.getenv("KEY")
 
 
-def publish_message(message, topic):
-    print("Publishing message to topic '{}': {}".format(topic, message))
-    message_json = json.dumps(message)
+def on_connection_interrupted(connection, error, **kwargs):
+    print("Connection interrupted. error: {}".format(error))
+
+
+def on_connection_resumed(connection, return_code, session_present, **kwargs):
+    print("Connection resumed. return_code: {} session_present: {}".format(return_code, session_present))
+
+    if return_code == mqtt.ConnectReturnCode.ACCEPTED and not session_present:
+        print("Session did not persist. Resubscribing to existing topics...")
+        resubscribe_future, _ = connection.resubscribe_existing_topics()
+        resubscribe_future.add_done_callback(on_resubscribe_complete)
+
+
+def on_resubscribe_complete(resubscribe_future):
+    resubscribe_results = resubscribe_future.result()
+    print("Resubscribe results: {}".format(resubscribe_results))
+
+    for topic, qos in resubscribe_results['topics']:
+        if qos is None:
+            sys.exit("Server rejected resubscribe to topic: {}".format(topic))
+
+
+def on_connection_success(connection, callback_data):
+    assert isinstance(callback_data, mqtt.OnConnectionSuccessData)
+    print("Connection Successful with return code: {} session present: {}".format(callback_data.return_code,
+                                                                                  callback_data.session_present))
+
+
+def on_connection_failure(connection, callback_data):
+    assert isinstance(callback_data, mqtt.OnConnectionFailuredata)
+    print("Connection failed with error code: {}".format(callback_data.error))
+
+
+def on_connection_closed(connection, callback_data):
+    print("Connection closed")
+
+
+def publish_message(pub_message, topic):
+    print("Publishing message to topic '{}': {}".format(topic, pub_message))
+    message_json = json.dumps(pub_message)
     mqtt_connection.publish(
         topic=topic,
         payload=message_json,
@@ -44,14 +82,14 @@ if __name__ == '__main__':
         cert_filepath=CERT,
         pri_key_filepath=KEY,
         ca_filepath=CA_FILE,
-        on_connection_interrupted=callbacks.on_connection_interrupted,
-        on_connection_resumed=callbacks.on_connection_resumed,
+        on_connection_interrupted=on_connection_interrupted,
+        on_connection_resumed=on_connection_resumed,
         client_id=CLIENT_ID,
         clean_session=False,
         keep_alive_secs=30,
-        on_connection_success=callbacks.on_connection_success,
-        on_connection_failure=callbacks.on_connection_failure,
-        on_connection_closed=callbacks.on_connection_closed)
+        on_connection_success=on_connection_success,
+        on_connection_failure=on_connection_failure,
+        on_connection_closed=on_connection_closed)
 
     print("Connecting to endpoint with client ID {}".format(CLIENT_ID))
     connect_future = mqtt_connection.connect()
@@ -63,14 +101,16 @@ if __name__ == '__main__':
             humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT_PIN)
 
             if humidity is not None and temperature is not None:
-                now = datetime.datetime.now()
-                print("Temp={0:0.1f}*C  Humidity={1:0.1f}% Timestamp={2}".format(temperature, humidity, now))
+                now = datetime.datetime.now().isoformat()
+                print("Temp={0}*C  Humidity={1}% Timestamp={2}".format(temperature, humidity, now))
 
                 message = {
-                    "temperature": temperature,
-                    "humidity": humidity
+                    "sensorId": SENSOR_ID,
+                    "temperature": str(temperature),
+                    "humidity": str(humidity),
+                    "timestamp": now
                 }
-                publish_message(message, TOPIC)
+                publish_message(pub_message=message, topic=TOPIC)
 
             else:
                 print("Failed to get data from sensor")
