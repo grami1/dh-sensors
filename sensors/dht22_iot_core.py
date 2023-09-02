@@ -102,12 +102,11 @@ if __name__ == '__main__':
 
             if humidity is not None and temperature is not None:
                 now = datetime.datetime.now().isoformat()
-                print("Temp={0}*C  Humidity={1}% Timestamp={2}".format(temperature, humidity, now))
 
                 message = {
                     "sensorId": SENSOR_ID,
-                    "temperature": str(temperature),
-                    "humidity": str(humidity),
+                    "temperature": "{0:0.1f}".format(temperature),
+                    "humidity": "{0:0.1f}".format(humidity),
                     "timestamp": now
                 }
                 publish_message(pub_message=message, topic=TOPIC)
