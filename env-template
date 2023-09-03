@@ -1,0 +1,8 @@
+DHT_PIN=4
+INPUT_ENDPOINT=id-ats.iot.region.amazonaws.com
+PORT=8883
+TOPIC=topic
+CLIENT_ID=client_id
+CA_FILE=/path/to/amazon-root-ca-1.pem
+CERT=/path/to/device.pem.crt
+KEY=/path/to/private.pem.key
